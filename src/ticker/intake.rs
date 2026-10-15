@@ -10,7 +10,9 @@ use super::reconcile::{
     Deps, Reconciler, RoutingDone, blocking, inbox_item, thought, update_run, update_worker,
 };
 use crate::herdr::{Herdr, Snapshot, WorkspaceId};
-use crate::linear::api::{Activity, Content, IssueDetail, IssueRef, Prompt, RunUpdate};
+use crate::linear::api::{
+    Activity, Content, IssueDetail, IssueRef, IssueStatus, Prompt, RunUpdate,
+};
 use crate::linear::task::{Decline, Levels, LinearEvent, LinearLevel};
 use crate::outbox::{self, Op, StateTarget};
 use crate::run::{AgentRecord, AgentStatus, Interrupt, Run, RunRecord, Status, WaitReason};
@@ -154,7 +156,26 @@ impl Reconciler {
                     .changed_at
                     .get(&issue_id)
                     .is_some_and(|at| read_started_at < *at);
-                if record.status != Status::Active || stale {
+                if stale {
+                    return;
+                }
+                // A detached run is read only to close it once its issue
+                // reaches a closing state; anything else waits until it is
+                // delegated again.
+                if record.status == Status::Detached {
+                    let issue = &update.issue;
+                    if self.closes(d, &record, issue) {
+                        self.changed_at
+                            .insert(record.issue_id.clone(), read_started_at);
+                        if let Err(error) =
+                            self.close_run(d, snap, &run, &issue.state_name, now).await
+                        {
+                            d.fail(&run.key, &error);
+                        }
+                    }
+                    return;
+                }
+                if record.status != Status::Active {
                     return;
                 }
                 let level = levels.get(&record.workspace).cloned().unwrap_or_default();
@@ -182,6 +203,15 @@ impl Reconciler {
         }
     }
 
+    /// Whether the issue's state ends its run: completed, canceled, or one of
+    /// the team's `close_states`.
+    fn closes<H>(&self, d: &Deps<'_, H>, record: &RunRecord, issue: &IssueStatus) -> bool {
+        matches!(issue.state_type.as_str(), "completed" | "canceled")
+            || d.config
+                .team(&record.workspace, &record.team_key)
+                .is_ok_and(|team| team.closes(&issue.state_name))
+    }
+
     #[allow(clippy::too_many_arguments)]
     async fn apply_read<H: Herdr + Clone + 'static>(
         &mut self,
@@ -196,11 +226,7 @@ impl Reconciler {
         now: Timestamp,
     ) -> Result<()> {
         let issue = &update.issue;
-        let closing = d
-            .config
-            .team(&record.workspace, &record.team_key)
-            .is_ok_and(|team| team.closes(&issue.state_name));
-        if closing || matches!(issue.state_type.as_str(), "completed" | "canceled") {
+        if self.closes(d, record, issue) {
             self.changed_at.insert(record.issue_id.clone(), read_at);
             return self.close_run(d, snap, run, &issue.state_name, now).await;
         }

@@ -653,7 +653,10 @@ impl Reconciler {
             .filter_map(|run| {
                 let record = run.record().ok()?;
                 let active = record.status == Status::Active;
-                if !active && outbox::is_empty(&run) {
+                // Detached runs are read too, so one closes when its issue
+                // reaches a closing state.
+                let watched = active || record.status == Status::Detached;
+                if !watched && outbox::is_empty(&run) {
                     return None;
                 }
                 let undecided = active
