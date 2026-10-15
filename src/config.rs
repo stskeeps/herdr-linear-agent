@@ -77,9 +77,20 @@ pub struct Team {
     pub review_state: String,
     /// The routing of this team's issues: a table under `routing`.
     pub routing: String,
+    /// Workflow state names (case-insensitive) that end a run the way a
+    /// completed or canceled state does: the agents stop and the run closes.
+    #[serde(default)]
+    pub close_states: Vec<String>,
 }
 
 impl Team {
+    /// Whether an issue in the state named `state_name` closes its run.
+    pub fn closes(&self, state_name: &str) -> bool {
+        self.close_states
+            .iter()
+            .any(|state| state.trim().eq_ignore_ascii_case(state_name.trim()))
+    }
+
     /// Whose delegations the ticker takes.
     pub fn delegators(&self) -> &[String] {
         self.allowed_delegator_ids
@@ -326,6 +337,16 @@ impl Config {
                 ensure!(
                     !team.review_state.trim().is_empty(),
                     "workspaces.{name}.teams.{key}.review_state is empty"
+                );
+                ensure!(
+                    team.close_states
+                        .iter()
+                        .all(|state| !state.trim().is_empty()),
+                    "workspaces.{name}.teams.{key}.close_states lists an empty state"
+                );
+                ensure!(
+                    !team.closes(&team.review_state),
+                    "workspaces.{name}.teams.{key}.close_states lists the review_state; `finish` would close the run"
                 );
             }
             for (key, seconds) in [
@@ -747,6 +768,22 @@ workers = ["standard", "deep"]
 
     /// Loads the sample with `text` as `config.toml` and `profiles` replacing
     /// or adding profile folders' `config.toml`. The error is the full chain.
+    #[test]
+    fn close_states_match_state_names_case_insensitively() {
+        let text = SAMPLE.replacen(
+            "[workspaces.acme.teams.DATA]",
+            "[workspaces.acme.teams.DATA]\nclose_states = [\"Merged\"]",
+            1,
+        );
+        let config = load_with(&text, &[]).unwrap();
+        let team = config.team("acme", "DATA").unwrap();
+        assert!(team.closes("Merged"));
+        assert!(team.closes("merged"));
+        assert!(!team.closes("In Review"));
+        let plain = load_with(SAMPLE, &[]).unwrap();
+        assert!(plain.team("acme", "DATA").unwrap().close_states.is_empty());
+    }
+
     fn load_with(text: &str, profiles: &[(&str, &str)]) -> Result<Config, String> {
         let dir = tempfile::tempdir().unwrap();
         write_sample(dir.path(), text);
@@ -826,6 +863,14 @@ workers = ["standard", "deep"]
         bad(
             "[workspaces.acme.teams.DATA]",
             "[workspaces.acme.teams.DATA]\nreview_state = \"\"",
+        );
+        bad(
+            "[workspaces.acme.teams.DATA]",
+            "[workspaces.acme.teams.DATA]\nclose_states = [\" \"]",
+        );
+        bad(
+            "[workspaces.acme.teams.DATA]",
+            "[workspaces.acme.teams.DATA]\nclose_states = [\"in review\"]",
         );
         bad(
             "workers = [\"standard\", \"deep\"]",

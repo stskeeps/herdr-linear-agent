@@ -14,6 +14,9 @@ say() { printf 'herdr-linear-agent install: %s\n' "$*" >&2; }
 
 build_from_source() {
   say "$1; building from source with cargo"
+  # Herdr runs this build step with its own PATH; rustup's default bin dir
+  # may not be on it.
+  [ -x "$HOME/.cargo/bin/cargo" ] && PATH="$HOME/.cargo/bin:$PATH"
   if ! command -v cargo >/dev/null 2>&1; then
     say "cargo is not installed; install Rust (https://rustup.rs) and run the build again"
     exit 1
@@ -41,6 +44,10 @@ sha256_of() {
     return 1
   fi
 }
+
+# This fork carries local changes (close_states) that no upstream release
+# binary has, so it always builds from source.
+build_from_source "stskeeps fork"
 
 version=$(tr -d '[:space:]' < .release-version)
 [ -n "$version" ] || build_from_source ".release-version is empty"

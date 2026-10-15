@@ -30,7 +30,7 @@ const DELEGATED_QUERY: &str = r#"query HerdrLinearAgentDelegatedIssues($teamKeys
     }
   ) {
     nodes {
-      id identifier title url updatedAt state { type } team { key }
+      id identifier title url updatedAt state { type name } team { key }
       agentSessions(first: 10) {
         nodes {
           id status createdAt appUser { id } creator { id name }
@@ -140,6 +140,9 @@ pub struct IssueRef {
     pub state: String,
     #[serde(deserialize_with = "team_key")]
     pub team: String,
+    /// The name of the issue's workflow state.
+    #[serde(skip)]
+    pub state_name: String,
     /// Who delegated the issue to the app, and when.
     #[serde(skip)]
     pub delegator: Option<Delegator>,
@@ -406,6 +409,10 @@ pub trait LinearApi: Sync {
                         .map_err(|_| ApiError::ReadFieldsInvalid)?;
                     (issue.delegator, issue.session) =
                         delegation(node, &viewer).map_err(|_| ApiError::ReadFieldsInvalid)?;
+                    issue.state_name = node["state"]["name"]
+                        .as_str()
+                        .unwrap_or_default()
+                        .to_string();
                     issues.push(issue);
                 }
                 let info = &page["pageInfo"];

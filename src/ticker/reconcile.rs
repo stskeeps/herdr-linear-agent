@@ -924,6 +924,7 @@ mod tests {
                         updated_at: T0.into(),
                         state: "unstarted".into(),
                         team: "DATA".into(),
+                        state_name: "Todo".into(),
                         delegator: Some(crate::linear::api::Delegator {
                             user: Some(crate::linear::api::User {
                                 id: "user-1".into(),

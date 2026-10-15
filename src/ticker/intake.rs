@@ -196,7 +196,11 @@ impl Reconciler {
         now: Timestamp,
     ) -> Result<()> {
         let issue = &update.issue;
-        if matches!(issue.state_type.as_str(), "completed" | "canceled") {
+        let closing = d
+            .config
+            .team(&record.workspace, &record.team_key)
+            .is_ok_and(|team| team.closes(&issue.state_name));
+        if closing || matches!(issue.state_type.as_str(), "completed" | "canceled") {
             self.changed_at.insert(record.issue_id.clone(), read_at);
             return self.close_run(d, snap, run, &issue.state_name, now).await;
         }
@@ -555,6 +559,15 @@ impl Reconciler {
         let paused = d.ctx.state_dir().join("paused").exists();
         let mut declined = std::collections::BTreeMap::new();
         for issue in &delegated.issues {
+            // A close state ends a run like a completed one, but Linear still
+            // lists the issue as delegated: leave it alone, or the run that
+            // just closed would be reopened.
+            if d.config
+                .team(workspace, &issue.team)
+                .is_ok_and(|team| team.closes(&issue.state_name))
+            {
+                continue;
+            }
             let key = crate::run::run_key(workspace, &issue.identifier);
             let run = Run::load(&runs_dir, &key).ok();
             let active = run

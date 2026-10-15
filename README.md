@@ -53,6 +53,7 @@ client_id = "your-oauth-client-id"       # the OAuth application of this workspa
 allowed_user_ids = ["linear-user-uuid"]  # whose replies reach the coordinator
 # allowed_delegator_ids = ["linear-user-uuid"]  # whose delegations are taken (default: allowed_user_ids)
 review_state = "In Review"               # where `finish` moves the issue (default)
+# close_states = ["Merged"]              # state names that close the run like Done: agents stop (stskeeps fork)
 routing = "default"                      # the routing of this team's issues, a table under [routing] (required)
 
 [workspaces.acme.teams.OPS]              # each team has its own allowed users, review state and routing
