@@ -59,6 +59,7 @@ fn delegation(key: &str, issue: &IssueRef, delegators: &[String]) -> Delegation 
         Delegation::Declined(Some(Decline {
             key: key.to_string(),
             session_id: session.id.clone(),
+            queued: false,
         }))
     }
 }
@@ -637,7 +638,21 @@ impl Reconciler {
             if active >= d.config.limits.max_runs as usize
                 || worker::agent_count(&runs) + 1 > d.config.limits.max_agents as usize
             {
-                break;
+                // Tell the session once that the issue waits for a slot, so
+                // Linear does not show the agent as never having started.
+                if let Some(session_id) = open_session(issue) {
+                    let queued = Some(Decline {
+                        key: key.clone(),
+                        session_id,
+                        queued: true,
+                    });
+                    if self.declined.get(&key) != Some(&queued) {
+                        d.log
+                            .line(&format!("{key}: queued: the run or agent limit is reached"));
+                    }
+                    declined.insert(key, queued);
+                }
+                continue;
             }
             if let Err(error) = self
                 .claim(d, workspace, issue, delegated.read_at, now)

@@ -125,6 +125,11 @@ pub struct RunQuery {
 pub const DECLINED: &str =
     "This agent does not take issues delegated by this user. Ask someone allowed to delegate it.";
 
+/// The thought a delegation waiting for a free run slot gets; the session
+/// stays open and the run starts on it once a slot frees up.
+pub const QUEUED: &str =
+    "Queued: every run slot on this machine is busy. This issue starts as soon as one frees up.";
+
 /// A delegation the reconciler turned down; the Linear task answers its
 /// session once.
 #[derive(Debug, Clone, PartialEq)]
@@ -132,6 +137,9 @@ pub struct Decline {
     /// `<workspace>/<ISSUE-KEY>`: only that workspace's task answers it.
     pub key: String,
     pub session_id: String,
+    /// A delegation the limits hold back, not a refusal: it gets the
+    /// `QUEUED` thought, which leaves the session open.
+    pub queued: bool,
 }
 
 /// The channels the task talks through.
@@ -683,8 +691,14 @@ impl LinearTask {
             if self.limited || self.answered.contains(&decline.session_id) {
                 continue;
             }
-            let activity = Activity::new(Content::Response {
-                body: DECLINED.into(),
+            let activity = Activity::new(if decline.queued {
+                Content::Thought {
+                    body: QUEUED.into(),
+                }
+            } else {
+                Content::Response {
+                    body: DECLINED.into(),
+                }
             });
             let id = uuid::Uuid::new_v4().to_string();
             match client
