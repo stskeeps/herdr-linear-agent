@@ -168,13 +168,25 @@ pub fn parse_option(text: &str) -> Result<(String, String)> {
 
 pub async fn ask(ctx: &Ctx<'_>, key: &str, text: &str, options: &[(String, String)]) -> Result<()> {
     non_empty(text, "question")?;
-    let (_, run, _) = load_active(ctx, key).await?;
+    let (config, run, record) = load_active(ctx, key).await?;
     let options: Vec<_> = options
         .iter()
         .map(|(label, value)| (label.as_str(), value.as_str()))
         .collect();
     if outbox::push(&run, Op::elicitation(text.trim(), &options))?.is_none() {
         bail!("run {key} is already awaiting a reply or has stopped");
+    }
+    // While the question is open the issue shows the team's ask state.
+    if config
+        .team(&record.workspace, &record.team_key)
+        .is_ok_and(|team| team.ask_state.is_some())
+    {
+        outbox::push(
+            &run,
+            Op::IssueState {
+                target: StateTarget::Ask,
+            },
+        )?;
     }
     ticker::poke(&ctx.state_dir());
     println!(

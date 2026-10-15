@@ -667,9 +667,16 @@ impl Reconciler {
                     .config
                     .team(&record.workspace, &record.team_key)
                     .map_or_else(|_| "In Review".to_string(), |t| t.review_state.clone());
+                let ask_state = d
+                    .config
+                    .team(&record.workspace, &record.team_key)
+                    .ok()
+                    .and_then(|t| t.ask_state.clone())
+                    .unwrap_or_default();
                 Some(RunQuery {
                     key: run.key.clone(),
                     review_state,
+                    ask_state,
                     issue_id: record.issue_id,
                     run_dir: run.dir.clone(),
                     session_id: Some(record.session_id).filter(|s| !s.is_empty()),

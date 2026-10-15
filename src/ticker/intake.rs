@@ -301,6 +301,10 @@ impl Reconciler {
             .team(&record.workspace, &team)
             .map(|team| team.allowed_user_ids.clone())
             .unwrap_or_default();
+        let has_ask_state = d
+            .config
+            .team(&record.workspace, &team)
+            .is_ok_and(|team| team.ask_state.is_some());
         for prompt in prompts {
             let (created, user, body) = (
                 prompt.created_at.clone(),
@@ -398,7 +402,19 @@ impl Reconciler {
                         r.coordinator.repend();
                     }
                 })?;
-                Ok((true, Vec::new()))
+                // An answered question takes the issue out of the ask state.
+                let answered = current
+                    .awaiting_reply
+                    .as_ref()
+                    .is_some_and(|wait| wait.reason == WaitReason::CoordinatorQuestion);
+                let ops = if answered && has_ask_state {
+                    vec![Op::IssueState {
+                        target: StateTarget::Back,
+                    }]
+                } else {
+                    Vec::new()
+                };
+                Ok((true, ops))
             })
             .await?;
         }

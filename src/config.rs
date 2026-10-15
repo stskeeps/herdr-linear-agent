@@ -81,6 +81,11 @@ pub struct Team {
     /// completed or canceled state does: the agents stop and the run closes.
     #[serde(default)]
     pub close_states: Vec<String>,
+    /// The workflow state an issue moves to while the coordinator waits on a
+    /// question it asked; an allowed reply moves it back to the team's first
+    /// started state.
+    #[serde(default)]
+    pub ask_state: Option<String>,
 }
 
 impl Team {
@@ -348,6 +353,17 @@ impl Config {
                     !team.closes(&team.review_state),
                     "workspaces.{name}.teams.{key}.close_states lists the review_state; `finish` would close the run"
                 );
+                if let Some(ask) = &team.ask_state {
+                    ensure!(
+                        !ask.trim().is_empty(),
+                        "workspaces.{name}.teams.{key}.ask_state is empty"
+                    );
+                    ensure!(
+                        !team.closes(ask)
+                            && !ask.trim().eq_ignore_ascii_case(team.review_state.trim()),
+                        "workspaces.{name}.teams.{key}.ask_state may be neither the review_state nor one of close_states"
+                    );
+                }
             }
             for (key, seconds) in [
                 ("intake_interval_seconds", workspace.intake_interval_seconds),
