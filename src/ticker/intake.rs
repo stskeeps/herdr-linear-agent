@@ -631,9 +631,13 @@ impl Reconciler {
                 continue;
             }
             let runs = Run::list(&runs_dir);
+            // A finished run waits for review and takes no slot.
             let active = runs
                 .iter()
-                .filter(|r| r.record().is_ok_and(|r| r.status == Status::Active))
+                .filter(|r| {
+                    r.record()
+                        .is_ok_and(|r| r.status == Status::Active && !r.finished)
+                })
                 .count();
             if active >= d.config.limits.max_runs as usize
                 || worker::agent_count(&runs) + 1 > d.config.limits.max_agents as usize

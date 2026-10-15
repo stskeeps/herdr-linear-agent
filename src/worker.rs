@@ -363,7 +363,9 @@ pub fn compose_brief(input: &BriefInput) -> String {
 pub fn agent_count(runs: &[Run]) -> usize {
     runs.iter()
         .filter_map(|run| run.record().ok().map(|r| (run, r)))
-        .filter(|(_, r)| r.status == Status::Active)
+        // A finished run waits for review: its idle agents leave room for
+        // other work until a reply makes it unfinished again.
+        .filter(|(_, r)| r.status == Status::Active && !r.finished)
         .map(|(run, r)| {
             usize::from(matches!(
                 r.coordinator.status,
@@ -1103,6 +1105,18 @@ mod tests {
         .unwrap();
         runs.add("DATA-3", Status::Active, AgentStatus::Stopped);
         runs.add("DATA-4", Status::Active, AgentStatus::Pending);
+        assert_eq!(agent_count(&Run::list(&runs.dir())), 4);
+
+        // A finished run waits for review: its agents leave room.
+        let finished = runs.add("DATA-5", Status::Active, AgentStatus::Open);
+        allocate(
+            &finished,
+            |_| Ok(()),
+            |w| w.agent.status = AgentStatus::Open,
+        )
+        .unwrap();
+        assert_eq!(agent_count(&Run::list(&runs.dir())), 6);
+        finished.update(|r| r.finished = true).unwrap();
         assert_eq!(agent_count(&Run::list(&runs.dir())), 4);
     }
 
