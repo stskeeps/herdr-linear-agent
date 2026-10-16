@@ -711,7 +711,14 @@ impl Reconciler {
             if r.coordinator.status == AgentStatus::Stopped {
                 r.coordinator.repend();
             }
-            vec![thought("The issue was delegated again; the run continues.")]
+            // Like a first pick-up, an issue still in an unstarted state moves
+            // to the team's start state; a started one stays where it is.
+            vec![
+                thought("The issue was delegated again; the run continues."),
+                Op::IssueState {
+                    target: StateTarget::Started,
+                },
+            ]
         })
         .await?;
         inbox_item(
