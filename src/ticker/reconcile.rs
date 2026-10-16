@@ -673,10 +673,17 @@ impl Reconciler {
                     .ok()
                     .and_then(|t| t.ask_state.clone())
                     .unwrap_or_default();
+                let start_state = d
+                    .config
+                    .team(&record.workspace, &record.team_key)
+                    .ok()
+                    .and_then(|t| t.start_state.clone())
+                    .unwrap_or_default();
                 Some(RunQuery {
                     key: run.key.clone(),
                     review_state,
                     ask_state,
+                    start_state,
                     issue_id: record.issue_id,
                     run_dir: run.dir.clone(),
                     session_id: Some(record.session_id).filter(|s| !s.is_empty()),

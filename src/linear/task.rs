@@ -113,6 +113,8 @@ pub struct RunQuery {
     pub review_state: String,
     /// The team's `ask_state`, empty when none is configured.
     pub ask_state: String,
+    /// The team's `start_state`, empty when none is configured.
+    pub start_state: String,
     pub issue_id: String,
     pub run_dir: PathBuf,
     pub session_id: Option<String>,
@@ -641,6 +643,7 @@ impl LinearTask {
                     &query.issue_id,
                     &query.review_state,
                     &query.ask_state,
+                    &query.start_state,
                     client,
                 )
                 .await;
@@ -924,6 +927,7 @@ mod tests {
                 key: self.runs[n].key.clone(),
                 review_state: "In Review".into(),
                 ask_state: String::new(),
+                start_state: String::new(),
                 issue_id: self.issues[n].clone(),
                 run_dir: self.runs[n].dir.clone(),
                 session_id: session.map(str::to_string),

@@ -86,6 +86,11 @@ pub struct Team {
     /// started state.
     #[serde(default)]
     pub ask_state: Option<String>,
+    /// The started state an issue moves to when its run is picked up, and
+    /// back to when a question is answered; when unset, the team's started
+    /// state with the lowest position.
+    #[serde(default)]
+    pub start_state: Option<String>,
 }
 
 impl Team {
@@ -353,6 +358,21 @@ impl Config {
                     !team.closes(&team.review_state),
                     "workspaces.{name}.teams.{key}.close_states lists the review_state; `finish` would close the run"
                 );
+                if let Some(start) = &team.start_state {
+                    ensure!(
+                        !start.trim().is_empty(),
+                        "workspaces.{name}.teams.{key}.start_state is empty"
+                    );
+                    ensure!(
+                        !team.closes(start)
+                            && !start.trim().eq_ignore_ascii_case(team.review_state.trim())
+                            && team
+                                .ask_state
+                                .as_deref()
+                                .is_none_or(|ask| !ask.trim().eq_ignore_ascii_case(start.trim())),
+                        "workspaces.{name}.teams.{key}.start_state may be none of review_state, ask_state and close_states"
+                    );
+                }
                 if let Some(ask) = &team.ask_state {
                     ensure!(
                         !ask.trim().is_empty(),

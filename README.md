@@ -55,6 +55,7 @@ allowed_user_ids = ["linear-user-uuid"]  # whose replies reach the coordinator
 review_state = "In Review"               # where `finish` moves the issue (default)
 # close_states = ["Merged"]              # state names that close the run like Done: agents stop (stskeeps fork)
 # ask_state = "Need info"                # where the issue waits while the coordinator asks a question (stskeeps fork)
+# start_state = "In Progress"            # where a picked-up issue moves; default: the lowest-position started state (stskeeps fork)
 routing = "default"                      # the routing of this team's issues, a table under [routing] (required)
 
 [workspaces.acme.teams.OPS]              # each team has its own allowed users, review state and routing

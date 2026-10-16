@@ -247,6 +247,7 @@ pub async fn send(
     issue_id: &str,
     review_state: &str,
     ask_state: &str,
+    start_state: &str,
     linear: &impl LinearApi,
 ) -> Sent {
     let mut sent = Sent {
@@ -264,6 +265,7 @@ pub async fn send(
             issue_id,
             review_state,
             ask_state,
+            start_state,
             linear,
         )
         .await;
@@ -322,6 +324,7 @@ async fn send_one(
     issue_id: &str,
     review_state: &str,
     ask_state: &str,
+    start_state: &str,
     linear: &impl LinearApi,
 ) -> Result<bool, ApiError> {
     let is_wait = matches!(
@@ -363,7 +366,9 @@ async fn send_one(
         Op::Labels { names } => linear.add_labels(issue_id, names).await,
         Op::IssueState { target } => {
             let issue = linear.issue(issue_id).await?;
-            let Some(state_id) = target_state(&issue, *target, review_state, ask_state)? else {
+            let Some(state_id) =
+                target_state(&issue, *target, review_state, ask_state, start_state)?
+            else {
                 return Ok(true);
             };
             linear.set_issue_state(issue_id, &state_id).await?;
@@ -417,12 +422,49 @@ fn clear_refused_wait(run: &Run, activity_id: &str) -> Result<bool, ApiError> {
     Ok(true)
 }
 
+/// The state a run works in: the configured `start_state` when there is one,
+/// else the team's started state with the lowest position other than the ask
+/// state.
+fn start_state_id(
+    issue: &IssueDetail,
+    start_state: &str,
+    ask_state: &str,
+) -> Result<String, ApiError> {
+    if !start_state.trim().is_empty() {
+        return issue
+            .team
+            .states
+            .iter()
+            .find(|s| s.name.eq_ignore_ascii_case(start_state.trim()))
+            .map(|s| s.id.clone())
+            .ok_or_else(|| {
+                ApiError::Graphql(format!(
+                    "team {} has no state named `{}`",
+                    issue.team.key,
+                    start_state.trim()
+                ))
+            });
+    }
+    issue
+        .team
+        .states
+        .iter()
+        .filter(|s| {
+            s.r#type == "started"
+                && (ask_state.trim().is_empty() || !s.name.eq_ignore_ascii_case(ask_state.trim()))
+        })
+        .min_by(|a, b| a.position.total_cmp(&b.position))
+        .map(|s| s.id.clone())
+        .ok_or_else(|| ApiError::Graphql(format!("team {} has no started state", issue.team.key)))
+}
+
 /// The state to move the issue to, or `None` when it should stay where it is.
 pub fn target_state(
     issue: &IssueDetail,
     target: StateTarget,
     review_state: &str,
     ask_state: &str,
+    start_state: &str,
 ) -> Result<Option<String>, ApiError> {
     let current = &issue.state;
     match target {
@@ -450,15 +492,7 @@ pub fn target_state(
             if ask_state.trim().is_empty() || !current.name.eq_ignore_ascii_case(ask_state.trim()) {
                 return Ok(None);
             }
-            let first = issue
-                .team
-                .states
-                .iter()
-                .filter(|s| s.r#type == "started" && !s.name.eq_ignore_ascii_case(ask_state.trim()))
-                .min_by(|a, b| a.position.total_cmp(&b.position));
-            first.map(|s| Some(s.id.clone())).ok_or_else(|| {
-                ApiError::Graphql(format!("team {} has no started state", issue.team.key))
-            })
+            start_state_id(issue, start_state, ask_state).map(Some)
         }
         StateTarget::Started => {
             if matches!(
@@ -467,15 +501,7 @@ pub fn target_state(
             ) {
                 return Ok(None);
             }
-            let first = issue
-                .team
-                .states
-                .iter()
-                .filter(|s| s.r#type == "started")
-                .min_by(|a, b| a.position.total_cmp(&b.position));
-            first.map(|s| Some(s.id.clone())).ok_or_else(|| {
-                ApiError::Graphql(format!("team {} has no started state", issue.team.key))
-            })
+            start_state_id(issue, start_state, ask_state).map(Some)
         }
         StateTarget::Review => {
             if current.name.eq_ignore_ascii_case(review_state)
@@ -581,7 +607,7 @@ mod tests {
             },
         )
         .unwrap();
-        let sent = send(&run, &session, &issue, "In Review", "", &linear).await;
+        let sent = send(&run, &session, &issue, "In Review", "", "", &linear).await;
         assert_eq!(sent.count, 4);
         assert!(sent.activity_sent && sent.blocked.is_none());
         assert!(pending(&run).is_empty());
@@ -608,10 +634,10 @@ mod tests {
         let (_dir, run, linear, session, issue) = setup();
         push(&run, thought("once")).unwrap();
         linear.lock().unwrap().lose_next_response = true;
-        let sent = send(&run, &session, &issue, "In Review", "", &linear).await;
+        let sent = send(&run, &session, &issue, "In Review", "", "", &linear).await;
         assert_eq!(sent.blocked, Some(ApiError::RequestFailed));
         assert!(pending(&run)[0].1.attempted);
-        let sent = send(&run, &session, &issue, "In Review", "", &linear).await;
+        let sent = send(&run, &session, &issue, "In Review", "", "", &linear).await;
         assert_eq!(sent.count, 1);
         let fake = linear.lock().unwrap();
         assert_eq!(fake.sessions[0].sent("thought").len(), 1);
@@ -625,11 +651,11 @@ mod tests {
             .unwrap()
             .unwrap();
         linear.lock().unwrap().lose_next_response = true;
-        let sent = send(&run, &session, &issue, "In Review", "", &linear).await;
+        let sent = send(&run, &session, &issue, "In Review", "", "", &linear).await;
         assert_eq!(sent.blocked, Some(ApiError::RequestFailed));
         run.update(|r| r.awaiting_reply = None).unwrap();
 
-        let sent = send(&run, &session, &issue, "In Review", "", &linear).await;
+        let sent = send(&run, &session, &issue, "In Review", "", "", &linear).await;
         assert_eq!(sent.count, 1, "the existing Linear activity is reconciled");
         assert!(pending(&run).is_empty());
         let fake = linear.lock().unwrap();
@@ -668,7 +694,7 @@ mod tests {
             .unwrap()
             .unwrap();
         linear.lock().unwrap().fail_next = Some(ApiError::Graphql("invalid activity".into()));
-        let sent = send(&run, &session, &issue, "In Review", "", &linear).await;
+        let sent = send(&run, &session, &issue, "In Review", "", "", &linear).await;
         assert_eq!(sent.refused.len(), 1);
         assert!(run.record().unwrap().awaiting_reply.is_none());
         assert!(
@@ -692,13 +718,13 @@ mod tests {
         let (_dir, run, linear, session, issue) = setup();
         push(&run, Op::elicitation("Proceed?", &[])).unwrap();
         linear.lock().unwrap().fail_next = Some(ApiError::RateLimited);
-        let sent = send(&run, &session, &issue, "In Review", "", &linear).await;
+        let sent = send(&run, &session, &issue, "In Review", "", "", &linear).await;
         assert_eq!(sent.blocked, Some(ApiError::RateLimited));
         assert!(run.record().unwrap().awaiting_reply.is_some());
         assert_eq!(pending(&run).len(), 1);
 
         linear.lock().unwrap().fail_next = Some(ApiError::RequestFailed);
-        let sent = send(&run, &session, &issue, "In Review", "", &linear).await;
+        let sent = send(&run, &session, &issue, "In Review", "", "", &linear).await;
         assert_eq!(sent.blocked, Some(ApiError::RequestFailed));
         assert!(run.record().unwrap().awaiting_reply.is_some());
         assert_eq!(pending(&run).len(), 1);
@@ -729,10 +755,10 @@ mod tests {
         push(&run, thought("a")).unwrap();
         push(&run, thought("b")).unwrap();
         linear.lock().unwrap().fail_next = Some(ApiError::HttpStatus(503));
-        let sent = send(&run, &session, &issue, "In Review", "", &linear).await;
+        let sent = send(&run, &session, &issue, "In Review", "", "", &linear).await;
         assert_eq!((sent.count, pending(&run).len()), (0, 2));
         // An attempted request whose send never reached Linear is read, then sent.
-        let sent = send(&run, &session, &issue, "In Review", "", &linear).await;
+        let sent = send(&run, &session, &issue, "In Review", "", "", &linear).await;
         assert_eq!(sent.count, 2);
 
         push(
@@ -743,7 +769,7 @@ mod tests {
         )
         .unwrap();
         push(&run, thought("after")).unwrap();
-        let sent = send(&run, &session, &issue, "Missing State", "", &linear).await;
+        let sent = send(&run, &session, &issue, "Missing State", "", "", &linear).await;
         assert_eq!(sent.refused.len(), 1);
         assert_eq!(sent.count, 1);
         assert!(
@@ -757,29 +783,70 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn the_start_state_names_where_runs_work() {
+        let (_dir, _run, linear, _session, issue) = setup();
+        let mut detail = linear.issue(&issue).await.unwrap();
+        // Unset: the started state with the lowest position.
+        assert_eq!(
+            target_state(&detail, StateTarget::Started, "Done", "", "")
+                .unwrap()
+                .as_deref(),
+            Some("state-progress")
+        );
+        // Set: that state, by name, wherever it sits in the workflow.
+        assert_eq!(
+            target_state(&detail, StateTarget::Started, "Done", "", "in review")
+                .unwrap()
+                .as_deref(),
+            Some("state-review")
+        );
+        assert!(target_state(&detail, StateTarget::Started, "Done", "", "Missing").is_err());
+        // An answered question goes back to it too.
+        detail.state = detail
+            .team
+            .states
+            .iter()
+            .find(|s| s.name == "In Progress")
+            .cloned()
+            .unwrap();
+        assert_eq!(
+            target_state(
+                &detail,
+                StateTarget::Back,
+                "Done",
+                "In Progress",
+                "In Review"
+            )
+            .unwrap()
+            .as_deref(),
+            Some("state-review")
+        );
+    }
+
+    #[tokio::test]
     async fn ask_moves_to_the_ask_state_and_back_only_from_it() {
         let (_dir, _run, linear, _session, issue) = setup();
         let mut detail = linear.issue(&issue).await.unwrap();
         // No ask state configured: neither target moves the issue.
         assert_eq!(
-            target_state(&detail, StateTarget::Ask, "Done", "").unwrap(),
+            target_state(&detail, StateTarget::Ask, "Done", "", "").unwrap(),
             None
         );
         assert_eq!(
-            target_state(&detail, StateTarget::Back, "Done", "").unwrap(),
+            target_state(&detail, StateTarget::Back, "Done", "", "").unwrap(),
             None
         );
         // "In Review" stands in for the ask state here.
         assert_eq!(
-            target_state(&detail, StateTarget::Ask, "Done", "in review")
+            target_state(&detail, StateTarget::Ask, "Done", "in review", "")
                 .unwrap()
                 .as_deref(),
             Some("state-review")
         );
-        assert!(target_state(&detail, StateTarget::Ask, "Done", "Need info").is_err());
+        assert!(target_state(&detail, StateTarget::Ask, "Done", "Need info", "").is_err());
         // Not in the ask state: a person moved it, so Back leaves it.
         assert_eq!(
-            target_state(&detail, StateTarget::Back, "Done", "In Review").unwrap(),
+            target_state(&detail, StateTarget::Back, "Done", "In Review", "").unwrap(),
             None
         );
         detail.state = detail
@@ -790,11 +857,11 @@ mod tests {
             .cloned()
             .unwrap();
         assert_eq!(
-            target_state(&detail, StateTarget::Ask, "Done", "In Review").unwrap(),
+            target_state(&detail, StateTarget::Ask, "Done", "In Review", "").unwrap(),
             None
         );
         assert_eq!(
-            target_state(&detail, StateTarget::Back, "Done", "In Review")
+            target_state(&detail, StateTarget::Back, "Done", "In Review", "")
                 .unwrap()
                 .as_deref(),
             Some("state-progress")
@@ -806,13 +873,13 @@ mod tests {
         let (_dir, _run, linear, _session, issue) = setup();
         let mut detail = linear.issue(&issue).await.unwrap();
         assert_eq!(
-            target_state(&detail, StateTarget::Started, "In Review", "")
+            target_state(&detail, StateTarget::Started, "In Review", "", "")
                 .unwrap()
                 .as_deref(),
             Some("state-progress")
         );
         assert_eq!(
-            target_state(&detail, StateTarget::Review, "in review", "")
+            target_state(&detail, StateTarget::Review, "in review", "", "")
                 .unwrap()
                 .as_deref(),
             Some("state-review")
@@ -825,11 +892,11 @@ mod tests {
             .cloned()
             .unwrap();
         assert_eq!(
-            target_state(&detail, StateTarget::Started, "In Review", "").unwrap(),
+            target_state(&detail, StateTarget::Started, "In Review", "", "").unwrap(),
             None
         );
         assert_eq!(
-            target_state(&detail, StateTarget::Review, "In Review", "").unwrap(),
+            target_state(&detail, StateTarget::Review, "In Review", "", "").unwrap(),
             None
         );
         detail.state = detail
@@ -840,7 +907,7 @@ mod tests {
             .cloned()
             .unwrap();
         assert_eq!(
-            target_state(&detail, StateTarget::Review, "In Review", "").unwrap(),
+            target_state(&detail, StateTarget::Review, "In Review", "", "").unwrap(),
             None
         );
     }
