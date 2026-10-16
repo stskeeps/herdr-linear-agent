@@ -60,6 +60,8 @@ enum Command {
     },
     /// Post a progress note to the Linear session.
     Say(TextArgs),
+    /// Post a comment on the Linear issue itself.
+    Comment(TextArgs),
     /// Ask a person a question in the Linear session.
     Ask {
         #[command(flatten)]
@@ -244,6 +246,9 @@ pub async fn run() -> Result<()> {
         } => commands::plan_set(&ctx, &key, &read_text_arg(&file)?).await,
         Command::Say(args) => {
             commands::say(&ctx, &args.key, &read_text_arg(&args.text_file)?).await
+        }
+        Command::Comment(args) => {
+            commands::comment(&ctx, &args.key, &read_text_arg(&args.text_file)?).await
         }
         Command::Ask { text, options } => {
             commands::ask(&ctx, &text.key, &read_text_arg(&text.text_file)?, &options).await

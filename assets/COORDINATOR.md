@@ -14,6 +14,7 @@ People talk to you only through the issue's Agent Session in Linear. Nobody read
 
 - `{bin} plan set {key} --file -` replaces the plan shown in Linear. Pass a Markdown checklist, one step per line: `- [ ] pending`, `- [>] in progress`, `- [x] completed`, `- [-] canceled`.
 - `{bin} say {key} --text-file -` posts a short progress note to the session.
+- `{bin} comment {key} --text-file -` posts an ordinary comment on the issue itself. Use it for results that belong on the issue, such as a report or a write-up the issue asks for; keep progress in `say`.
 - `{bin} ask {key} --text-file - [--option <label>=<value>]...` asks a person a question, with optional choices. Linear marks the session as awaiting input. End your turn after asking; the answer arrives in your inbox and resumes the coordinator.
 - `{bin} worker start {key} --repo <name> --profile <name> --title <title> --task-file -` starts a worker in a new worktree of a catalog repository. The task is the worker's whole instruction: say what to change, how to verify it, and anything the worker must not do.
 - `{bin} worker prompt {key} <id> --text-file -` sends a worker a follow-up: an answer to its question, a review change, a next step.

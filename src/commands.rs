@@ -156,6 +156,22 @@ pub async fn say(ctx: &Ctx<'_>, key: &str, text: &str) -> Result<()> {
     Ok(())
 }
 
+/// Queues an ordinary comment on the run's issue: for results meant to stay
+/// on the issue (a report, a write-up), not in the session's activity.
+pub async fn comment(ctx: &Ctx<'_>, key: &str, text: &str) -> Result<()> {
+    non_empty(text, "comment")?;
+    let (_, run, _) = load_active(ctx, key).await?;
+    outbox::push(
+        &run,
+        Op::Comment {
+            body: text.trim().to_string(),
+        },
+    )?;
+    ticker::poke(&ctx.state_dir());
+    println!("the comment is queued for the Linear issue");
+    Ok(())
+}
+
 /// `--option label=value`, or a bare label used as its own value.
 pub fn parse_option(text: &str) -> Result<(String, String)> {
     let (label, value) = text.split_once('=').unwrap_or((text, text));

@@ -21,12 +21,13 @@ use crate::{inbox, names};
 
 /// The subcommands a coordinator may run without a permission prompt. The
 /// plugin's own subcommands (`startup`, `action`, `ticker`) are left out.
-pub const ALLOWED_SUBCOMMANDS: [&str; 8] = [
+pub const ALLOWED_SUBCOMMANDS: [&str; 9] = [
     "skill",
     "context",
     "inbox done",
     "plan",
     "say",
+    "comment",
     "ask",
     "worker",
     "finish",
@@ -432,6 +433,7 @@ mod tests {
             "inbox done",
             "plan",
             "say",
+            "comment",
             "ask",
             "worker",
             "finish",
